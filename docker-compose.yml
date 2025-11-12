@@ -1,0 +1,28 @@
+services:
+  front:
+    build:
+      context: web
+      dockerfile: Dockerfile
+      args:
+        - VITE_API_URL=${VITE_API_URL}
+    env_file: .env
+    ports:
+      - ${FRONT_PORT}:4173
+    networks:
+      - cowater-network
+
+  server:
+    build:
+      context: server
+      dockerfile: Dockerfile
+    environment:
+      - SERVER_PORT=${SERVER_PORT}
+    ports:
+      - ${SERVER_PORT}:8000
+    networks:
+      - cowater-network
+
+networks:
+  cowater-network:
+    driver: bridge
+    name: cowater-network
