@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Card,
   CardAction,
@@ -6,22 +6,31 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Droplet, Ruler, Thermometer } from "lucide-react";
-import { Pie, PieChart, Label } from "recharts";
+import { Ruler } from "lucide-react";
 import {
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-} from "@/components/ui/chart";
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip as RechartsTooltip,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Label as PieLabel,
+} from "recharts";
+
+const VITE_WEBSOCKET_URL = import.meta.env.VITE_WEBSOCKET_URL || "";
+
+const MAX_DISTANCE = 120;  
+const MIN_DISTANCE = 20;  
 
 function App() {
-  const [temperature, setTemperature] = useState(0);
-  const [humidity, setHumidity] = useState(0);
+  const [waterLevelPct, setWaterLevelPct] = useState(0);
+  const [history, setHistory] = useState([]);
   const [connected, setConnected] = useState(false);
 
-  // Conecta ao WebSocket na inicialização
   useEffect(() => {
-    const ws = new WebSocket("wss://d36cdc5fe28a.ngrok-free.app/ws");
+    const ws = new WebSocket(`${VITE_WEBSOCKET_URL}/ws`);
 
     ws.onopen = () => {
       console.log("✅ Conectado ao WebSocket");
@@ -31,18 +40,26 @@ function App() {
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        console.log("📥 Dados recebidos:", data);
-        if (data.temperature !== undefined) setTemperature(data.temperature);
-        if (data.humidity !== undefined) setHumidity(data.humidity);
+        const d = typeof data === "number" ? data : data.distance;
+        if (typeof d === "number") {
+          const pct = Math.max(
+            0,
+            Math.min(
+              100,
+              ((MAX_DISTANCE - d) / (MAX_DISTANCE - MIN_DISTANCE)) * 100
+            )
+          );
+          setWaterLevelPct(pct);
+          setHistory((prev) => [...prev, { idx: prev.length + 1, pct }]);
+        }
       } catch (e) {
         console.error("Erro ao processar mensagem:", e);
       }
     };
 
     ws.onclose = () => {
-      console.warn("⚠️ WebSocket desconectado. Tentando reconectar...");
+      console.warn("⚠️ WebSocket desconectado");
       setConnected(false);
-      // setTimeout(() => window.location.reload(), 3000);
     };
 
     ws.onerror = (err) => console.error("Erro no WebSocket:", err);
@@ -50,148 +67,84 @@ function App() {
     return () => ws.close();
   }, []);
 
-  // Dados para os gráficos
-  const humidityData = [
-    { label: "Umidade", value: 12, fill: "#3b82f6" },
-    { label: "Não umidade", value: 10, fill: "#e5e7eb" },
-  ];
+  const alertLow = waterLevelPct < 20; 
 
-  const temperatureData = [
-    { label: "Temperatura", value: temperature, fill: "#ef4444" },
-    { label: "Restante", value: 50 - temperature, fill: "#e5e7eb" },
+  const pieData = [
+    { name: "Água", value: waterLevelPct, fill: "#3b82f6" },
+    { name: "Vazio", value: 100 - waterLevelPct },
   ];
-
-  const chartConfig = {
-    value: { label: "Celsius" },
-  };
 
   return (
-    <div className="min-h-screen bg-white flex flex-col p-10 gap-10 transition-all">
-      <h2 className="w-full text-4xl font-bold text-center">
-        Dashboard CoWater
-      </h2>
-      {/* <p className="text-center text-sm text-gray-500">
-        {connected ? "🟢 Conectado ao servidor IoT" : "🔴 Desconectado"}
-      </p> */}
+    <div className="min-h-screen bg-white flex flex-col p-10 gap-10">
+      <h2 className="text-4xl font-bold text-center">Dashboard CoWater</h2>
 
-      <div className="flex w-full gap-5 items-center justify-center flex-wrap">
-        {/* Card de Temperatura */}
-        {/* <Card className="w-96 outline-0 border-[#fefefe] shadow-md hover:-translate-y-1 hover:border-red-300 transition-all">
-          <CardHeader className="items-center pb-0">
-            <CardTitle className="text-2xl w-full">Temperatura</CardTitle>
+      {alertLow && (
+        <div className="p-4 bg-red-200 text-red-800 text-center font-semibold rounded">
+          ⚠️ Atenção: reservatório com pouca água! ({waterLevelPct.toFixed(1)} %)
+        </div>
+      )}
+
+      <div className="flex flex-wrap gap-5 justify-center">
+        {/* Pie Chart — nível de água */}
+        <Card className="w-80 shadow-md">
+          <CardHeader className="pb-0">
+            <CardTitle className="text-2xl w-full">Nível de Água</CardTitle>
             <CardAction>
-              <Thermometer size={32} className="text-red-300" />
+              <Ruler size={32} className="text-blue-400" />
             </CardAction>
           </CardHeader>
-          <CardContent className="flex-1 pb-0">
-            <ChartContainer
-              config={chartConfig}
-              className="mx-auto aspect-square max-h-[250px]"
-            >
+          <CardContent className="pb-0">
+            <ResponsiveContainer width="100%" height={240}>
               <PieChart>
-                <ChartTooltip
-                  cursor={false}
-                  content={<ChartTooltipContent hideLabel />}
-                />
                 <Pie
-                  data={temperatureData}
+                  data={pieData}
                   dataKey="value"
-                  nameKey="label"
+                  nameKey="name"
                   innerRadius={60}
-                  strokeWidth={5}
+                  outerRadius={100}
+                  stroke="#fff"
                 >
-                  <Label
+                  <PieLabel
                     content={({ viewBox }) => {
-                      if (viewBox && "cx" in viewBox && "cy" in viewBox) {
-                        return (
-                          <text
-                            x={viewBox.cx}
-                            y={viewBox.cy}
-                            textAnchor="middle"
-                            dominantBaseline="middle"
-                          >
-                            <tspan
-                              x={viewBox.cx}
-                              y={viewBox.cy}
-                              className="fill-foreground text-3xl font-bold"
-                            >
-                              {temperature.toFixed(1)}°C
-                            </tspan>
-                            <tspan
-                              x={viewBox.cx}
-                              y={(viewBox.cy || 0) + 24}
-                              className="fill-muted-foreground font-semibold"
-                            >
-                              Celsius
-                            </tspan>
-                          </text>
-                        );
-                      }
+                      if (!viewBox || typeof viewBox.cx !== "number") return null;
+                      return (
+                        <text
+                          x={viewBox.cx}
+                          y={viewBox.cy}
+                          textAnchor="middle"
+                          dominantBaseline="middle"
+                          className="fill-foreground text-3xl font-bold"
+                        >
+                          {waterLevelPct.toFixed(1)}%
+                        </text>
+                      );
                     }}
                   />
                 </Pie>
               </PieChart>
-            </ChartContainer>
+            </ResponsiveContainer>
           </CardContent>
-        </Card> */}
+        </Card>
 
-        {/* Card de Umidade */}
-        <Card className="w-96 outline-0 border-[#fefefe] shadow-md hover:-translate-y-1 hover:border-blue-300 transition-all">
-          <CardHeader className="items-center pb-0">
-            <CardTitle className="text-2xl w-full">Distância</CardTitle>
-            <CardAction>
-              <Ruler size={32} className="text-blue-300" />
-            </CardAction>
+        <Card className="w-full max-w-xl shadow-md">
+          <CardHeader className="pb-0">
+            <CardTitle className="text-2xl w-full">Histórico de Água (%)</CardTitle>
           </CardHeader>
-          <CardContent className="flex-1 pb-0">
-            <ChartContainer
-              config={chartConfig}
-              className="mx-auto aspect-square max-h-[250px]"
-            >
-              <PieChart>
-                <ChartTooltip
-                  cursor={false}
-                  content={<ChartTooltipContent hideLabel />}
+          <CardContent className="pb-0">
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={history} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+                <XAxis dataKey="idx" hide={true} />
+                <YAxis domain={[0, 100]} hide={true} />
+                <RechartsTooltip formatter={(value) => `${value.toFixed(1)}%`} />
+                <Line
+                  type="monotone"
+                  dataKey="pct"
+                  stroke="#3b82f6"
+                  dot={false}
+                  activeDot={false}
                 />
-                <Pie
-                  data={humidityData}
-                  dataKey="value"
-                  nameKey="label"
-                  innerRadius={60}
-                  strokeWidth={5}
-                >
-                  <Label
-                    content={({ viewBox }) => {
-                      if (viewBox && "cx" in viewBox && "cy" in viewBox) {
-                        return (
-                          <text
-                            x={viewBox.cx}
-                            y={viewBox.cy}
-                            textAnchor="middle"
-                            dominantBaseline="middle"
-                          >
-                            <tspan
-                              x={viewBox.cx}
-                              y={viewBox.cy}
-                              className="fill-foreground text-3xl font-bold"
-                            >
-                              7.4cm
-                            </tspan>
-                            <tspan
-                              x={viewBox.cx}
-                              y={(viewBox.cy || 0) + 24}
-                              className="fill-muted-foreground font-semibold"
-                            >
-                              Centímetros
-                            </tspan>
-                          </text>
-                        );
-                      }
-                    }}
-                  />
-                </Pie>
-              </PieChart>
-            </ChartContainer>
+              </LineChart>
+            </ResponsiveContainer>
           </CardContent>
         </Card>
       </div>

@@ -1,50 +1,55 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+import asyncio
+import paho.mqtt.client as mqtt
 
 app = FastAPI()
 
 connections: list[WebSocket] = []
 
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    await websocket.accept()
-    connections.append(websocket)
-    print(f"📡 Nova conexão WebSocket ({len(connections)} ativas)")
+MQTT_BROKER = "host.docker.internal"
+MQTT_PORT = 1883
+MQTT_TOPIC = "bia-iot-2025/grupo-1/sensor/distancia"
 
+def on_connect(client, userdata, flags, rc):
+    print("🔌 Conectado ao MQTT Broker com código", rc)
+    client.subscribe(MQTT_TOPIC)
+
+main_loop = asyncio.get_event_loop()
+
+def on_message(client, userdata, msg):
+    try:
+        payload = msg.payload.decode('utf-8')
+    except UnicodeDecodeError:
+        payload = msg.payload.decode('utf-8', errors='ignore')
+    print("📥 Mensagem MQTT recebida:", payload)
+    asyncio.run_coroutine_threadsafe(broadcast(payload), main_loop)
+
+mqtt_client = mqtt.Client()
+mqtt_client.on_connect = on_connect
+mqtt_client.on_message = on_message
+
+@app.on_event("startup")
+async def startup_event():
+    mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
+    mqtt_client.loop_start()
+    print("MQTT loop started")
+
+@app.websocket("/ws")
+async def websocket_endpoint(ws: WebSocket):
+    await ws.accept()
+    connections.append(ws)
+    print("🟢 WebSocket conectado — total:", len(connections))
     try:
         while True:
-            data = await websocket.receive_text()
-            print(f"Mensagem recebida do cliente: {data}")
+            await ws.receive_text()
     except WebSocketDisconnect:
-        connections.remove(websocket)
-        print(f"❌ Conexão encerrada ({len(connections)} ativas)")
+        connections.remove(ws)
+        print("❌ WebSocket desconectado — total:", len(connections))
 
-
-@app.post("/data")
-async def post_data(request: Request):
-    try:
-        body = await request.json()
-        print(f"📥 Dados recebidos: {body}")
-
-        disconnected = []
-        for ws in connections:
-            try:
-                await ws.send_json(body)
-            except Exception as e:
-                print(f"Erro ao enviar para cliente: {e}")
-                disconnected.append(ws)
-
-        for ws in disconnected:
+async def broadcast(message: str):
+    for ws in connections:
+        try:
+            await ws.send_text(message)
+        except Exception as e:
+            print("Erro ao enviar para cliente WebSocket:", e)
             connections.remove(ws)
-
-        return JSONResponse(content={"message": "Broadcast enviado", "clientes_ativos": len(connections)})
-    except HTTPException as e:
-        raise e
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao processar requisição: {str(e)}")
-
-
-if __name__ == "__main__":
-    import uvicorn
-    
-    uvicorn.run("main:app", host="0.0.0.0", port=8080, reload=True)
