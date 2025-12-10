@@ -40,6 +40,8 @@ function App() {
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
+        console.log("Mensagem recebida:", data);
+        console.log(typeof data)
         const d = typeof data === "number" ? data : data.distance;
         if (typeof d === "number") {
           const pct = Math.max(

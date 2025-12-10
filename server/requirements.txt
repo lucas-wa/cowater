@@ -2,3 +2,6 @@ fastapi
 websockets
 uvicorn
 paho-mqtt
+uvicorn[standard]>=0.23
+google-cloud-pubsub>=2.0.0
+gcloud-aio-pubsub
